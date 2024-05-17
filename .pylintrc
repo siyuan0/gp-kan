@@ -1,0 +1,8 @@
+[MASTER]
+disable=
+    missing-module-docstring,
+    missing-function-docstring,
+    missing-class-docstring,
+    invalid-name,
+    too-few-public-methods,
+    unnecessary-lambda-assignment,
