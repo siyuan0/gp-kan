@@ -102,13 +102,20 @@ Here $p(x)$ is treated as a weight function that applies a scaling to the GP acr
 Suppose that we have some known data $\boldsymbol{h}$, corresponding to locations $\boldsymbol{z}$, for the GP. Then:
 \begin{equation}
     \begin{aligned}
-        \mathbb{E}\left[\Tilde{y}|\boldsymbol{h}\right]&=\sqrt{2\pi}s^2l\boldsymbol{q}_{xh}K_{hh}^{-1}\boldsymbol{h} \\
+        \mathbb{E}\left[\Tilde{y}|\boldsymbol{h}\right]&=a\mu_x+b+\sqrt{2\pi}s^2l\boldsymbol{q}_{xh}K_{hh}^{-1}\boldsymbol{h} \\
+        &=a\mu_x+b+ \boldsymbol{q}_{xh}Q_{hh}^{-1}\boldsymbol{h}\\
         \text{Var}\left[\Tilde{y}|\boldsymbol{h}\right]&=\frac{s^2l}{\sqrt{ l^2+2\sigma_x^2}}-2\pi s^4 l^2 \boldsymbol{q}_{xh}K_{hh}^{-1}\boldsymbol{q}_{hx} \\
+        &=\frac{s^2l}{\sqrt{ l^2+2\sigma_x^2}}-\sqrt{2\pi}s^2l\boldsymbol{q}_{xh}Q_{hh}^{-1}\boldsymbol{q}_{hx} \\
         \text{where }\boldsymbol{q}_{xh}&=\boldsymbol{q}_{hx}^T=\begin{bmatrix}
             \mathcal{N}(\mu_x|z_1,\sigma_x^2+l^2) \\
             \mathcal{N}(\mu_x|z_2,\sigma_x^2+l^2) \\
             \vdots
-        \end{bmatrix}^T
+        \end{bmatrix}^T \\
+        Q_{hh} &= \frac{1}{s^2 l\sqrt{2\pi}}K_{hh} = \begin{bmatrix}
+            \mathcal{N}(z_1|z_1,l^2) & \mathcal{N}(z_1|z_2,l^2) & \hdots \\
+            \mathcal{N}(z_2|z_1,l^2) & & \\
+            \vdots
+        \end{bmatrix}
     \label{eq:output_gaussian}
     \end{aligned}
 \end{equation}
@@ -121,7 +128,6 @@ In practice, this corresponds to, for $N\rightarrow\infty$
         x_1 \\ x_2 \\ \vdots \\ x_N
     \end{bmatrix},\quad x_i\sim p(x)
 \end{equation}
-Then the mean can be calculated 
 
 
 \newpage
@@ -137,7 +143,7 @@ Then the mean can be calculated
     Equation \ref{eq:int_gaussian} can be proven by considering Gaussian random variable $\Tilde{\boldsymbol{x}}\sim\mathcal{N}(\boldsymbol{x}|\mu,\Sigma_1)$ and $\Tilde{\boldsymbol{e}}\sim\mathcal{N}(\boldsymbol{e}|\boldsymbol{b},\Sigma_2)$. Then the Gaussian random variable $\Tilde{\boldsymbol{y}}=(W\Tilde{\boldsymbol{x}}+\Tilde{\boldsymbol{e}})\sim\mathcal{N}(\boldsymbol{y}|W\mu+\boldsymbol{b},W\Sigma_1W^T+\Sigma_2)$. Marginalizing the distribution for $\Tilde{\boldsymbol{y}}$ gives $p(\boldsymbol{y})=\int p(\boldsymbol{y}|\boldsymbol{x})p(\boldsymbol{x})d\boldsymbol{x}$, where we note that $p(\boldsymbol{x})=\mathcal{N}(\boldsymbol{x}|\mu,\Sigma_1)$ and $p(\boldsymbol{y}|\boldsymbol{x})=\mathcal{N}(\boldsymbol{y}|W\boldsymbol{x}+\boldsymbol{b},\Sigma_2)$, thus proving Equation \ref{eq:int_gaussian}.
 
     \subsection{Proof for Equation \ref{eq:output_gaussian}}
-    Given 
+    Given
     \begin{equation}
         \begin{aligned}
             m(x)&=ax+b \\
@@ -145,7 +151,7 @@ Then the mean can be calculated
             p(x)&=\mathcal{N}(x|\mu_x,\sigma_x^2)
         \end{aligned}
     \end{equation}
-    And defining 
+    And defining
     \begin{equation}
         \boldsymbol{q}_{xh}=\boldsymbol{q}_{hx}^T=\begin{bmatrix}
             \mathcal{N}(\mu_x|z_1,\sigma_x^2+l^2) \\
@@ -179,7 +185,7 @@ Then the mean can be calculated
         \label{eq:incomplete_var}
         \end{aligned}
     \end{equation}
-    For the first term 
+    For the first term
     \begin{equation}
         \begin{aligned}
             \int\int p(x)k(x,x')p(x')dxdx'&=\int\left(\int p(x)k(x,x')dx\right)p(x')dx \\
@@ -188,10 +194,10 @@ Then the mean can be calculated
             &=\frac{s^2l}{\sqrt{l^2+2\sigma_x^2}}
         \end{aligned}
     \end{equation}
-    For the second term 
+    For the second term
     \begin{equation}
         \begin{aligned}
-            \int\int p(x)\boldsymbol{k}_{xh}K_{hh}^{-1}\boldsymbol{k}_{hx'}p(x')dxdx' 
+            \int\int p(x)\boldsymbol{k}_{xh}K_{hh}^{-1}\boldsymbol{k}_{hx'}p(x')dxdx'
             &=\int\left(\int p(x)\boldsymbol{k}_{xh}dx\right)K_{hh}^{-1}\boldsymbol{k}_{hx'}p(x')dx' \\
             &=\int \sqrt{2\pi}s^2l\boldsymbol{q}_{xh}K_{hh}^{-1}\boldsymbol{k}_{hx'}p(x')dx' \\
             &=\sqrt{2\pi}s^2l\boldsymbol{q}_{xh}K_{hh}^{-1} \int \boldsymbol{k}_{hx'}p(x')dx' \\

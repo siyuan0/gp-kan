@@ -5,4 +5,5 @@ disable=
     missing-class-docstring,
     invalid-name,
     too-few-public-methods,
+    too-many-locals,
     unnecessary-lambda-assignment,
