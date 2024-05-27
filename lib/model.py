@@ -84,58 +84,73 @@ class LayerFused(torch.nn.Module):
         self.jitter.copy_(torch.ones((self.I, self.O)) * GLOBAL_GITTER)  # (I, O)
 
     def forward(self, x: GP_dist) -> GP_dist:
-        x_mean = x.mean.reshape(self.I, 1)  # (I, 1, 1)
-        x_var = x.var.reshape(self.I, 1, 1)  # (I, 1, 1)
+        """
+        input  x.mean & x.var shape: (N, I)
+        output y.mean & y.var shape: (N, O)
+        where N is the batch size
+              I is the input_size
+              O is the output_size
+        """
+        assert x.mean.dim() == 2
+        assert x.mean.shape[1] == self.I
 
-        s = self.s.reshape(self.I, self.O, 1)
-        l = self.l.reshape(self.I, self.O, 1)
-        jitter = self.jitter.reshape(self.I, self.O, 1, 1)
-        z = self.get_z()  # (I, O, P)
+        N = x.mean.shape[0]
+        I = self.I
+        O = self.O
+        P = self.P
+
+        x_mean = x.mean.reshape(N, I, 1)  # (I, 1, 1)
+        x_var = x.var.reshape(N, I, 1, 1)  # (I, 1, 1)
+
+        s = self.s.reshape(1, I, O, 1)
+        l = self.l.reshape(1, I, O, 1)
+        jitter = self.jitter.reshape(1, I, O, 1, 1)
+        z = self.get_z().reshape(1, I, O, P)  # (1, I, O, P)
 
         kernel_func1 = lambda x1, x2: normal_pdf(x1, x2, x_var + l**2)
         kernel_func2 = lambda x1, x2: normal_pdf(x1, x2, l**2)
 
-        Q_hh = get_kmatrix(z, z, kernel_func2)  # (I, O, P, P)
+        Q_hh = get_kmatrix(z, z, kernel_func2)  # (1, I, O, P, P)
         q_xh = get_kmatrix(
-            x_mean.repeat(1, self.O).reshape(self.I, self.O, 1), z, kernel_func1
-        )  # (I, O, 1, P)
+            x_mean.repeat(1, 1, self.O).reshape(N, I, O, 1), z, kernel_func1
+        )  # (N, I, O, 1, P)
         Q_hh_noise = Q_hh + (
             (jitter**2 + BASELINE_GITTER)
             / (
-                s.reshape(self.I, self.O, 1, 1) ** 2
-                * torch.abs(l.reshape(self.I, self.O, 1, 1))
+                s.reshape(1, I, O, 1, 1) ** 2
+                * torch.abs(l.reshape(1, I, O, 1, 1))
                 * SQRT_2PI
             )
             + BASELINE_GITTER
-        ) * torch.diag_embed(torch.ones(self.I, self.O, self.P), dim1=-2, dim2=-1)
+        ) * torch.diag_embed(torch.ones(1, I, O, P), dim1=-2, dim2=-1)
 
-        # L: (I, O, P, P)
+        # L: (1, I, O, P, P)
         L = torch.linalg.cholesky(Q_hh_noise)  # pylint: disable=not-callable
         L_inv = torch.linalg.inv(L)  # pylint: disable=not-callable
         L_inv_T = torch.transpose(L_inv, -1, -2)
         Q_hh_inv = torch.linalg.matmul(L_inv_T, L_inv)  # pylint: disable=not-callable
 
         # mean
-        # t1: (I, O, 1, P)
+        # t1: (N, I, O, 1, P)
         t1 = torch.linalg.matmul(q_xh, Q_hh_inv)  # pylint: disable=not-callable
-        h = self.h.reshape(self.I, self.O, self.P, 1)
-        # t2: (I, O, 1, 1)
+        h = self.h.reshape(1, I, O, P, 1)
+        # t2: (N, I, O, 1, 1)
         t2 = torch.linalg.matmul(t1, h)  # pylint: disable=not-callable
-        # out_mean: (O)
-        out_mean = torch.sum(t2, 0).reshape(self.O)
+        # out_mean: (N, O)
+        out_mean = torch.sum(t2, 1).reshape(N, O)
 
         # variance
-        # A: (I, O, 1, P)
+        # A: (N, I, O, 1, P)
         A = torch.linalg.matmul(q_xh, L_inv_T)  # pylint: disable=not-callable
-        A_T = torch.transpose(A, -1, -2)  # (I, O, P, 1)
-        t3 = (s**2) * (torch.abs(l) / torch.sqrt(l**2 + 2 * x_var))  # (I, O, 1)
-        t4 = SQRT_2PI * (s**2) * torch.abs(l)  # (I, O, 1)
-        # t5: (I, O)
+        A_T = torch.transpose(A, -1, -2)  # (N, I, O, P, 1)
+        t3 = (s**2) * (torch.abs(l) / torch.sqrt(l**2 + 2 * x_var))  # (N, I, O, 1)
+        t4 = SQRT_2PI * (s**2) * torch.abs(l)  # (1, I, O, 1)
+        # t5: (N, I, O, 1, 1)
         t5 = torch.linalg.matmul(A, A_T)  # pylint: disable=not-callable
-        t6 = t5.reshape(self.I, self.O, 1)
-        t7 = t3 - t4 * t6 + GLOBAL_GITTER  # (I, O, 1)
-        # out_var: (O)
-        out_var = torch.sum(t7, 0).reshape(self.O)
+        t6 = t5.reshape(N, I, O, 1)  # (N, I, O, 1)
+        t7 = t3 - t4 * t6 + GLOBAL_GITTER  # (N, I, O, 1)
+        # out_var: (N, O)
+        out_var = torch.sum(t7, 1).reshape(N, O)
 
         return GP_dist(out_mean, out_var)
 
@@ -248,9 +263,6 @@ class LayerFused(torch.nn.Module):
                 self.plot_neuron(axes[0, axes_idx], i_idx, o_idx)
                 axes_idx += 1
 
-        # for ax in axes.flat:
-        #     ax.label_outer()
-
         fig.set_figwidth(20)
         fig.set_figheight(5)
         fig.savefig(path)
@@ -307,8 +319,12 @@ class simple_model(torch.nn.Module):
     def forward(self, x: GP_dist) -> GP_dist:
         """
         run a provided input through the layers
+        input   x.mean and x.var shape be (N, layer[0].I)
+        output  y.mean and y.var shape be (N, layer[-1].O)
         """
-        assert x.mean.dim() == 1 and x.mean.shape[0] == self.layout[0]
+        assert x.mean.dim() == 2
+        assert x.mean.shape[1] == self.layout[0]
+
         intermediate = x
         for layer in self.layers:
             out_intermediate = layer.forward(intermediate)
@@ -316,8 +332,13 @@ class simple_model(torch.nn.Module):
         return intermediate
 
     def predict(self, x: torch.Tensor) -> GP_dist:
+        """
+        run a provided deterministic input through the layers to do a prediction
+        input   x shape be (N, layer[0].I)
+        output  y.mean and y.out shape be (N, layer[-1].O)
+        """
         x_mean = x
-        x_var = 1e-6 * torch.ones(x.shape[-1])
+        x_var = 1e-6 * torch.ones_like(x)
         return self.forward(GP_dist(x_mean, x_var))
 
     def internal_loglik(self) -> torch.Tensor:

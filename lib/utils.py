@@ -4,6 +4,7 @@ import torch
 
 
 def normal_pdf(x: torch.Tensor, mean: torch.Tensor, var: torch.Tensor) -> torch.Tensor:
+    """compute the normal pdf, standard broadcasting rules apply"""
     return (1 / torch.sqrt(2 * torch.pi * var)) * torch.exp(
         -0.5 * ((x - mean) ** 2) / var
     )
@@ -33,8 +34,6 @@ def get_kmatrix(
     """
     N1 = x1.shape[-1]
     N2 = x2.shape[-1]
-
-    assert x2.shape[0:-1] == x1.shape[0:-1]
 
     extra_dim = x1.shape[0:-1]
     ones_extra_dim = [1 for _ in extra_dim]

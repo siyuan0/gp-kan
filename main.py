@@ -15,7 +15,12 @@ class dataset:
     test_input: torch.Tensor
     test_label: torch.Tensor
 
-    def random_subset(self, size):
+    def random_training_subset(self, size):
+        """
+        return input shape (N, model_I)
+               label shape (N, model_O)
+            where N = size
+        """
         idx = torch.randperm(self.training_input.shape[0])
         chosen_idx = idx[:size]
         return self.training_input[chosen_idx], self.training_label[chosen_idx]
@@ -59,26 +64,23 @@ def main():
     optimizerLBFGS = torch.optim.LBFGS(
         model.parameters(), lr=7e-6, line_search_fn="strong_wolfe"
     )
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizerSGD, gamma=0.9)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizerSGD, gamma=0.95)
 
     data = get_data()
 
     def closure(optimizer):
         optimizer.zero_grad()
-        obj_val = torch.zeros(1)
+        BATCH_SIZE = 300  # N
         # get random subset of data
-        train_inputs, train_labels = data.random_subset(200)
+        train_inputs, train_labels = data.random_training_subset(BATCH_SIZE)
+        train_labels_reshaped = train_labels.reshape(BATCH_SIZE, 1)
 
         # go through all data
-        for train_idx in range(train_inputs.shape[0]):
-            train_input = train_inputs[train_idx, :]
-            train_label = train_labels[train_idx]
-            # print(f"label: {train_label}, {true_func(train_input[0], train_input[1])}")
-            model_out = model.forward(
-                GP_dist(train_input, 1e-6 * torch.ones(train_input.shape[-1]))
-            )
-            loglik = log_likelihood(model_out.mean, model_out.var, train_label)
-            obj_val -= loglik
+        model_out = model.forward(
+            GP_dist(train_inputs, 1e-6 * torch.ones_like(train_inputs))
+        )
+        loglik = log_likelihood(model_out.mean, model_out.var, train_labels_reshaped)
+        obj_val = -torch.sum(loglik)
         obj_val.backward()
         return obj_val
 
@@ -93,21 +95,17 @@ def main():
         return negloglik
 
     def eval_model(train_loss):
-        eval_val = torch.zeros(1, requires_grad=False)
-        for test_idx in range(data.test_input.shape[0]):
-            test_input = data.test_input[test_idx, :]
-            test_label = data.test_label[test_idx]
-            model_out = model.forward(
-                GP_dist(test_input, 1e-6 * torch.zeros(test_input.shape[-1]))
-            )
-            eval_val -= log_likelihood(model_out.mean, model_out.var, test_label)
+        test_inputs = data.test_input
+        test_labels = data.test_label.reshape(-1, 1)
+        model_out = model.forward(
+            GP_dist(test_inputs, 1e-6 * torch.zeros_like(test_inputs))
+        )
+        loglik = log_likelihood(model_out.mean, model_out.var, test_labels)
+        eval_val = -torch.sum(loglik)
 
         print(
-            f"epoch {epoch}, train negloglik: \t{train_loss.detach().numpy()[0]},    "
-            f"\ttest negloglik: {eval_val.detach().numpy()[0]}"
-            # f"\t jitter: {[neuron.jitter.detach().numpy()[0] for neuron in model.group1_neurons + model.group2_neurons]}"
-            # f"\t l: {[neuron.l.detach().numpy()[0] for neuron in model.group1_neurons + model.group2_neurons]}"
-            # f"\t s: {[neuron.s.detach().numpy()[0] for neuron in model.group1_neurons + model.group2_neurons]}"
+            f"epoch {epoch}, train negloglik: \t{train_loss.detach().numpy()},    "
+            f"\ttest negloglik: {eval_val.detach().numpy()}"
         )
 
     # # LBFGS step
@@ -119,7 +117,7 @@ def main():
     #     optimizerLBFGS.step(closureLBFGS)
     #     print(f"  refinement {i}: internal loglik {closureLBFGS()}")
 
-    for epoch in range(100):
+    for epoch in range(1000):
 
         torch.save(model.state_dict(), "tmp.pt")
         model.save_fig("display/")
@@ -137,7 +135,7 @@ def main():
     # evaluate
     eval_data = get_data()
     for test_input, test_label in zip(eval_data.test_input, eval_data.test_label):
-        prediction = model.predict(test_input)
+        prediction = model.predict(test_input.reshape(1, -1))
         print(
             f"evaluation: input {test_input.numpy()}    "
             f"\t output mean {prediction.mean.detach().numpy()}   "

@@ -11,3 +11,4 @@ disable=
     too-many-locals,
     too-many-instance-attributes,
     unnecessary-lambda-assignment,
+    duplicate-code
