@@ -11,6 +11,10 @@ class GP_dist:
         self.mean = mean
         self.var = var
 
+    @classmethod
+    def fromTensor(cls, mean: torch.Tensor):
+        return GP_dist(mean, 1e-6 * torch.ones_like(mean))
+
     def __add__(self, other):
         mean = self.mean + other.mean
         var = self.var + other.var

@@ -76,9 +76,7 @@ def main():
         train_labels_reshaped = train_labels.reshape(BATCH_SIZE, 1)
 
         # go through all data
-        model_out = model.forward(
-            GP_dist(train_inputs, 1e-6 * torch.ones_like(train_inputs))
-        )
+        model_out = model.forward(GP_dist.fromTensor(train_inputs))
         loglik = log_likelihood(model_out.mean, model_out.var, train_labels_reshaped)
         obj_val = -torch.sum(loglik)
         obj_val.backward()
@@ -97,9 +95,7 @@ def main():
     def eval_model(train_loss):
         test_inputs = data.test_input
         test_labels = data.test_label.reshape(-1, 1)
-        model_out = model.forward(
-            GP_dist(test_inputs, 1e-6 * torch.zeros_like(test_inputs))
-        )
+        model_out = model.forward(GP_dist.fromTensor(test_inputs))
         loglik = log_likelihood(model_out.mean, model_out.var, test_labels)
         eval_val = -torch.sum(loglik)
 
