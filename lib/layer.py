@@ -10,12 +10,13 @@ from lib.utils import normal_pdf
 DEFAULT_NUM_OF_PTS = 10
 Z_INIT_LOW = -2
 Z_INIT_HIGH = 2
-H_INIT_LOW = -5
-H_INIT_HIGH = 5
+H_INIT_LOW = -1
+H_INIT_HIGH = 1
 GLOBAL_LENGTH_SCALE = 0.4
+MIN_LENGTH_SCALE = 0.1
 GLOBAL_COVARIANCE_SCALE = 1
 GLOBAL_GITTER = 1e-1
-BASELINE_GITTER = 1e-3
+BASELINE_GITTER = 1e-4
 SQRT_2PI: float = np.sqrt(2 * np.pi)
 
 
@@ -57,26 +58,50 @@ class LayerFused(torch.nn.Module):
 
         # initialise gp hyperparameters
         self.l = torch.nn.Parameter(
-            torch.ones((self.I, self.O)) * GLOBAL_LENGTH_SCALE, requires_grad=True
+            torch.ones((self.I, self.O)), requires_grad=True
         )  # (I, O)
         self.s = torch.nn.Parameter(
-            torch.ones((self.I, self.O)) * GLOBAL_COVARIANCE_SCALE, requires_grad=True
+            torch.ones((self.I, self.O)), requires_grad=True
         )  # (I, O)
         self.jitter = torch.nn.Parameter(
-            torch.ones((self.I, self.O)) * GLOBAL_GITTER, requires_grad=True
+            torch.ones((self.I, self.O)), requires_grad=True
         )  # (I, O)
 
+        self.reset_gp_hyp()
+
+    def set_jitter(self, jitter):
+        self.jitter.copy_(torch.log(jitter).detach())
+
+    def get_jitter(self):
+        """always use this to access jitter, to ensure consistent transformation applied"""
+        return torch.exp(self.jitter)
+
+    def set_s(self, s):
+        self.s.copy_(torch.log(s).detach())
+
+    def get_s(self):
+        """always use this to access s, to ensure consistent transformation applied"""
+        return torch.exp(self.s)
+
+    def set_l(self, l):
+        self.l.copy_(torch.log(l).detach())
+
+    def get_l(self):
+        """always use this to access l, to ensure consistent transformation applied"""
+        return torch.exp(self.l) + MIN_LENGTH_SCALE
+
     def get_z(self):
-        """always use this to access the inducing locations, to ensure consistent transformation applied to z"""
+        """always use this to access z, to ensure consistent transformation applied"""
         return torch.tanh(self.z)
 
     def reset_gp_hyp(self):
         max_z = torch.max(self.get_z(), dim=-1).values
         min_z = torch.min(self.get_z(), dim=-1).values
         new_lengthscale = (max_z - min_z) / self.P
-        self.l.copy_(new_lengthscale)  # (I, O)
-        self.s.copy_(torch.ones((self.I, self.O)) * GLOBAL_COVARIANCE_SCALE)  # (I, O)
-        self.jitter.copy_(torch.ones((self.I, self.O)) * GLOBAL_GITTER)  # (I, O)
+        with torch.no_grad():
+            self.set_l(new_lengthscale)  # (I, O)
+            self.set_s(torch.ones((self.I, self.O)) * GLOBAL_COVARIANCE_SCALE)  # (I, O)
+            self.set_jitter(torch.ones((self.I, self.O)) * GLOBAL_GITTER)  # (I, O)
 
     def forward(self, x: GP_dist) -> GP_dist:
         """
@@ -97,15 +122,19 @@ class LayerFused(torch.nn.Module):
         x_mean = x.mean.reshape(N, I, 1)  # (I, 1, 1)
         x_var = x.var.reshape(N, I, 1, 1)  # (I, 1, 1)
 
-        s = self.s.reshape(1, I, O, 1)
-        l = self.l.reshape(1, I, O, 1)
-        jitter = self.jitter.reshape(1, I, O, 1, 1)
+        s = self.get_s().reshape(1, I, O, 1)
+        l = self.get_l().reshape(1, I, O, 1)
+        jitter = self.get_jitter().reshape(1, I, O, 1, 1)
         z = self.get_z().reshape(1, I, O, P)  # (1, I, O, P)
 
         kernel_func1 = lambda x1, x2: normal_pdf(x1, x2, x_var + l**2)
         kernel_func2 = lambda x1, x2: normal_pdf(x1, x2, l**2)
 
         Q_hh = get_kmatrix(z, z, kernel_func2)  # (1, I, O, P, P)
+        if torch.any(torch.isnan(Q_hh)):
+            print(l)
+            print(s)
+            print(jitter)
         q_xh = get_kmatrix(
             x_mean.repeat(1, 1, self.O).reshape(N, I, O, 1), z, kernel_func1
         )  # (N, I, O, 1, P)
@@ -150,11 +179,11 @@ class LayerFused(torch.nn.Module):
         return GP_dist(out_mean, out_var)
 
     def loglikelihood(self) -> torch.Tensor:
-        """return log likelihood of each neuron's GP internal data points,
-        summed across all neurons"""
-        s = self.s.reshape(self.I, self.O, 1)
-        l = self.l.reshape(self.I, self.O, 1)
-        jitter = self.jitter.reshape(self.I, self.O, 1, 1)
+        """return avg log likelihood of each neuron's GP internal data points,
+        across all neurons"""
+        s = self.get_s().reshape(self.I, self.O, 1)
+        l = self.get_l().reshape(self.I, self.O, 1)
+        jitter = self.get_jitter().reshape(self.I, self.O, 1, 1)
         z = self.get_z()  # (I, O, P)
         covar_func = lambda x1, x2: s**2 * torch.exp(-((x1 - x2) ** 2) / (2 * l**2))
 
@@ -177,7 +206,7 @@ class LayerFused(torch.nn.Module):
         t2 = torch.linalg.matmul(A, A_T)  # pylint: disable=not-callable
         loglik = -0.5 * t2 - t1 - self.P * np.log(SQRT_2PI)  # (I, O, 1, 1)
         loglik_sum = torch.sum(loglik)  # (1)
-        return loglik_sum
+        return loglik_sum / (self.I * self.P)
 
     def __gp_dist(self, x: torch.Tensor, I_idx: int, O_idx: int) -> GP_dist:
         """
@@ -185,9 +214,9 @@ class LayerFused(torch.nn.Module):
         return: GP_dist of mean and var
         """
         assert x.dim() == 1 and x.shape[0] == 1
-        l = self.l[I_idx, O_idx]  # (1)
-        s = self.s[I_idx, O_idx]  # (1)
-        jitter = self.jitter[I_idx, O_idx]  # (1)
+        l = self.get_l()[I_idx, O_idx]  # (1)
+        s = self.get_s()[I_idx, O_idx]  # (1)
+        jitter = self.get_jitter()[I_idx, O_idx]  # (1)
         z = self.get_z()[I_idx, O_idx].reshape(1, self.P)  # (1, P)
         h = self.h[I_idx, O_idx].reshape(1, self.P)  # (1, P)
         covar_func = lambda x1, x2: s**2 * torch.exp(-((x1 - x2) ** 2) / (2 * l**2))

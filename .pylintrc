@@ -1,5 +1,5 @@
 [FORMAT]
-max-line-length=130
+max-line-length=150
 
 [MASTER]
 disable=
@@ -11,5 +11,6 @@ disable=
     too-many-locals,
     too-many-instance-attributes,
     too-many-arguments,
+    too-many-statements,
     unnecessary-lambda-assignment,
     duplicate-code

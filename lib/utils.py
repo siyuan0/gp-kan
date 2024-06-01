@@ -3,6 +3,14 @@ from typing import Callable
 import torch
 
 
+def count_parameters(model: torch.nn.Module) -> int:
+    """return total number of trainable parameters"""
+    count = 0
+    for p in model.parameters():
+        count += p.numel()
+    return count
+
+
 def normal_pdf(x: torch.Tensor, mean: torch.Tensor, var: torch.Tensor) -> torch.Tensor:
     """compute the normal pdf, standard broadcasting rules apply"""
     return (1 / torch.sqrt(2 * torch.pi * var)) * torch.exp(

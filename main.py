@@ -1,84 +1,91 @@
 import os
-from dataclasses import dataclass
 
 import torch
+from torch.utils.data import DataLoader
+from torchvision import datasets
+from torchvision.transforms import ToTensor
 
+from lib.activations import NormaliseGaussian
+from lib.activations import ReshapeGaussian
+from lib.conv import GP_conv2D
 from lib.gp_dist import GP_dist
-from lib.model import simple_model
+from lib.layer import LayerFused
+from lib.model import GP_Model
+from lib.utils import count_parameters
 from lib.utils import log_likelihood
 
 
-@dataclass
-class dataset:
-    training_input: torch.Tensor
-    training_label: torch.Tensor
-    test_input: torch.Tensor
-    test_label: torch.Tensor
-
-    def random_training_subset(self, size):
-        """
-        return input shape (N, model_I)
-               label shape (N, model_O)
-            where N = size
-        """
-        idx = torch.randperm(self.training_input.shape[0])
-        chosen_idx = idx[:size]
-        return self.training_input[chosen_idx], self.training_label[chosen_idx]
+def imgTransform(img):
+    t1 = ToTensor()(img)
+    t2 = torch.transpose(t1, dim0=-3, dim1=-2)
+    t3 = torch.transpose(t2, dim0=-2, dim1=-1)
+    return t3
 
 
-def true_func(x1, x2):
-    # print(f"label int {torch.sin(torch.pi * x1)} , {x2**2}")
-    return torch.exp(torch.sin(torch.pi * x1) + x2**2)
-
-
-def get_data():
-    range_x1 = [-0.5, 0.5]
-    range_x2 = [-0.5, 0.5]
-    num_of_train = 5000
-    num_of_test = 100
-    inputs = torch.rand(num_of_train + num_of_test, 2) * torch.tensor(
-        [range_x1[1] - range_x1[0], range_x2[1] - range_x2[0]]
-    ) + torch.tensor([range_x1[0], range_x2[0]])
-    labels = true_func(inputs[:, 0], inputs[:, 1])
-
-    return dataset(
-        inputs[:num_of_train],
-        labels[:num_of_train],
-        inputs[num_of_train:],
-        labels[num_of_train:],
-    )
+def oneHotEncoding(label):
+    t1 = torch.tensor(label)
+    t2 = torch.nn.functional.one_hot(t1, num_classes=10)  # pylint: disable=not-callable
+    return t2
 
 
 def main():
     MODEL_SAVE_PATH = "model.pt"
+    BATCH_SIZE = 128
 
-    model = simple_model([2, 2, 1])
+    model = GP_Model(
+        [
+            GP_conv2D(28, 28, 1, 1, kernel_size=8, stride=2, num_gp_pts=20),
+            NormaliseGaussian(),
+            GP_conv2D(11, 11, 1, 1, kernel_size=3, stride=1, num_gp_pts=20),
+            NormaliseGaussian(),
+            ReshapeGaussian([-1, 81]),
+            LayerFused(81, 10, num_gp_pts=10),
+            NormaliseGaussian(),
+            LayerFused(10, 10, num_gp_pts=10),
+            NormaliseGaussian(),
+        ]
+    )
     print(model)
+    print(f"number of parameters: {count_parameters(model)}")
 
     if os.path.isfile(MODEL_SAVE_PATH):
         model.load_state_dict(torch.load(MODEL_SAVE_PATH))
 
-    model.save_fig("display/")
-
-    optimizerSGD = torch.optim.SGD(model.parameters(), lr=1e-5, momentum=0.9)
+    optimizerSGD = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
     optimizerLBFGS = torch.optim.LBFGS(
-        model.parameters(), lr=7e-6, line_search_fn="strong_wolfe"
+        model.parameters(), lr=1e-3, line_search_fn="strong_wolfe"
     )
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizerSGD, gamma=0.95)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizerSGD, gamma=0.9)
 
-    data = get_data()
+    # get MNIST data
+    training_data = datasets.MNIST(
+        root="downloads/MNIST/train",
+        train=True,
+        download=True,
+        transform=imgTransform,
+        target_transform=oneHotEncoding,
+    )
+
+    test_data = datasets.MNIST(
+        root="downloads/MNIST/test",
+        train=False,
+        download=True,
+        transform=imgTransform,
+        target_transform=oneHotEncoding,
+    )
+
+    train_dataloader = DataLoader(training_data, batch_size=BATCH_SIZE, shuffle=True)
+    test_dataloader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=True)
 
     def closure(optimizer):
         optimizer.zero_grad()
-        BATCH_SIZE = 300  # N
-        # get random subset of data
-        train_inputs, train_labels = data.random_training_subset(BATCH_SIZE)
-        train_labels_reshaped = train_labels.reshape(BATCH_SIZE, 1)
+        train_features, train_labels = next(iter(train_dataloader))
+        batch_size = train_features.shape[0]
 
         # go through all data
-        model_out = model.forward(GP_dist.fromTensor(train_inputs))
-        loglik = log_likelihood(model_out.mean, model_out.var, train_labels_reshaped)
-        obj_val = -torch.sum(loglik)
+        model_out = model.forward(GP_dist.fromTensor(train_features))
+        loglik = log_likelihood(model_out.mean, model_out.var, train_labels)
+        obj_val = -torch.sum(loglik) / batch_size
         obj_val.backward()
         return obj_val
 
@@ -93,51 +100,66 @@ def main():
         return negloglik
 
     def eval_model(train_loss):
-        test_inputs = data.test_input
-        test_labels = data.test_label.reshape(-1, 1)
-        model_out = model.forward(GP_dist.fromTensor(test_inputs))
+        test_features, test_labels = next(iter(test_dataloader))
+        batch_size = test_features.shape[0]
+        model_out = model.forward(GP_dist.fromTensor(test_features))
         loglik = log_likelihood(model_out.mean, model_out.var, test_labels)
-        eval_val = -torch.sum(loglik)
+        eval_val = -torch.sum(loglik) / batch_size
 
+        corrects = torch.argmax(model_out.mean, dim=1) == torch.argmax(
+            test_labels, dim=1
+        )
+        accuracy = torch.count_nonzero(corrects) / corrects.numel()
         print(
             f"epoch {epoch}, train negloglik: \t{train_loss.detach().numpy()},    "
-            f"\ttest negloglik: {eval_val.detach().numpy()}"
+            f"\ttest negloglik: {eval_val.detach().numpy()}    "
+            f"\taccuracy: {accuracy}"
+            f"\tlr: {scheduler.get_lr()}"
         )
 
-    # # LBFGS step
-    # with torch.no_grad():
-    #     model.reset_gp_hyp()
-    # for i in range(10):
-    #     model.freeze_all_params()
-    #     model.set_gp_hyp_trainable()
-    #     optimizerLBFGS.step(closureLBFGS)
-    #     print(f"  refinement {i}: internal loglik {closureLBFGS()}")
+    # LBFGS step
+    def refine_model():
+        # with torch.no_grad():
+        #     model.reset_gp_hyp()
+        for i in range(10):
+            model.freeze_all_params()
+            model.set_gp_hyp_trainable()
+            optimizerLBFGS.step(closureLBFGS)  # type: ignore
+            print(f"  refinement {i}: internal loglik {closureLBFGS()}")
 
+    # refine_model()
     for epoch in range(1000):
-
-        torch.save(model.state_dict(), "tmp.pt")
-        model.save_fig("display/")
-
         # SGD step
         model.freeze_all_params()
         model.set_all_trainable()
+        # model.set_gp_pts_trainable()
         optimizerSGD.step(closureSGD)  # type:ignore
         eval_model(closureSGD())
-        if epoch % 10 == 0:
+        if epoch % 50 == 0:
             scheduler.step()
+
+        # save tmp
+        torch.save(model.state_dict(), "tmp.pt")
+        if epoch % 10 == 0:
+            torch.save(model.state_dict(), "tmp10.pt")
+        if epoch % 50 == 0:
+            torch.save(model.state_dict(), "tmp50.pt")
+        if epoch % 100 == 0:
+            torch.save(model.state_dict(), "tmp100.pt")
 
     torch.save(model.state_dict(), MODEL_SAVE_PATH)
 
-    # evaluate
-    eval_data = get_data()
-    for test_input, test_label in zip(eval_data.test_input, eval_data.test_label):
-        prediction = model.predict(test_input.reshape(1, -1))
-        print(
-            f"evaluation: input {test_input.numpy()}    "
-            f"\t output mean {prediction.mean.detach().numpy()}   "
-            f"\t output var  {prediction.var.detach().numpy()}    "
-            f"\t true label  {true_func(test_input[0], test_input[1]).numpy()}"
-        )
+    # print some training outcomes
+    for layer in model.layers:
+        print(layer)
+        if isinstance(layer, LayerFused):
+            print(f"log length scale {layer.l.detach().numpy()}")
+            print(f"log covar scale {layer.s.detach().numpy()}")
+            print(f"log jitter scale {layer.jitter.detach().numpy()}")
+        if isinstance(layer, GP_conv2D):
+            print(f"log length scale {layer.layerFused.l.detach().numpy()}")
+            print(f"log covar scale {layer.layerFused.s.detach().numpy()}")
+            print(f"log jitter scale {layer.layerFused.jitter.detach().numpy()}")
 
 
 if __name__ == "__main__":

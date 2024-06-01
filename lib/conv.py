@@ -23,6 +23,7 @@ class GP_conv2D(torch.nn.Module):
         dilation: int | Tuple[int, int] = 1,
         stride: int | Tuple[int, int] = 1,
         padding: int | Tuple[int, int] = 0,
+        num_gp_pts: int = 5,
     ) -> None:
         super().__init__()
 
@@ -68,9 +69,8 @@ class GP_conv2D(torch.nn.Module):
         self.add_module("unfold", self.unfold)
 
         self.layerFused = LayerFused(
-            self.kernel_input_size, self.kernel_output_size, num_gp_pts=5
+            self.kernel_input_size, self.kernel_output_size, num_gp_pts=num_gp_pts
         )
-        self.add_module("internal", self.layerFused)
 
     def im2col(self, img: torch.Tensor) -> torch.Tensor:
         """
@@ -98,7 +98,6 @@ class GP_conv2D(torch.nn.Module):
         img_transpose = torch.transpose(
             img_transpose_tmp, dim0=2, dim1=3
         )  # (N, IC, IH, IW)
-
         img_unfolded = self.unfold(img_transpose)  # (N, IC * KH * KW, L)
 
         t1 = torch.transpose(img_unfolded, dim0=1, dim1=2)  # (N, L, IC * KH * KW)
@@ -120,10 +119,9 @@ class GP_conv2D(torch.nn.Module):
         for x.mean.shape = x.var.shape = [N, IH, IW, IC]
         return y.mean.shape = y.var.shape = [N, OH, OW, OC]
         """
-        MAX_BATCHSIZE = 1000
+        MAX_BATCHSIZE = 10000
 
         N = x.mean.shape[0]
-
         x_mean_unfolded = self.im2col(x.mean)  # (N, L, IC * KH * KW)
         x_var_unfolded = self.im2col(x.var)  # (N, L, IC * KH * KW)
 
@@ -137,19 +135,41 @@ class GP_conv2D(torch.nn.Module):
         for i in range(int(np.ceil(N / n_step))):
             start_idx = i * n_step
             end_idx = min(N, start_idx + n_step)
+            actual_step = end_idx - start_idx
 
             batch_mean = x_mean_unfolded[start_idx:end_idx].reshape(
-                n_step * L, self.kernel_input_size
+                actual_step * L, self.kernel_input_size
             )
             batch_var = x_var_unfolded[start_idx:end_idx].reshape(
-                n_step * L, self.kernel_input_size
+                actual_step * L, self.kernel_input_size
             )
 
             out = self.layerFused.forward(GP_dist(batch_mean, batch_var))
-            out_means.append(self.col2im(out.mean))  # (n_step, OH, OW, OC)
-            out_vars.append(self.col2im(out.var))  # (n_step, OH, OW, OC)
+            out_means.append(self.col2im(out.mean))  # (actual_step, OH, OW, OC)
+            out_vars.append(self.col2im(out.var))  # (actual_step, OH, OW, OC)
 
         out_mean = torch.concatenate(out_means, dim=0)  # (N, OH, OW, OC)
         out_var = torch.concatenate(out_vars, dim=0)  # (N, OH, OW, OC)
 
         return GP_dist(out_mean, out_var)
+
+    def loglikelihood(self) -> torch.Tensor:
+        """
+        return the internal loglik
+        """
+        return self.layerFused.loglikelihood()
+
+    def reset_gp_hyp(self):
+        self.layerFused.reset_gp_hyp()
+
+    def set_all_trainable(self):
+        self.layerFused.set_all_trainable()
+
+    def freeze_all_params(self):
+        self.layerFused.freeze_all_params()
+
+    def set_gp_pts_trainable(self):
+        self.layerFused.set_gp_pts_trainable()
+
+    def set_gp_hyp_trainable(self):
+        self.layerFused.set_gp_hyp_trainable()
