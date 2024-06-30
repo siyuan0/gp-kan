@@ -127,10 +127,10 @@ Item 1 and 3 helps to simplify analysis and produce a fully tractable exact obje
 \subsection{Single GP neuron}
 Consider the following r.v. $y$
 \begin{equation}
-	y=\int f p(x)dx,\quad\quad p(x)=\mathcal{N}(x|\mu_x,\sigma_x^2)
+	y=f\ast p(x)=\int f p(x)dx,\text{ for }p(x)=\mathcal{N}(x|\mu_x,\sigma_x^2), f\sim\mathcal{GP}(m(\cdot),k(\cdot,\cdot)|\boldsymbol{h},\boldsymbol{z})
     \label{eq:reformulation}
 \end{equation}
-where $f\sim\mathcal{GP}(m(\cdot),k(\cdot,\cdot)|\boldsymbol{h},\boldsymbol{z},x)$ is the GP with data $\boldsymbol{h},\boldsymbol{z}$. Equation \ref{eq:reformulation} can be seen as a summation over Gaussian r.v., each scaled by $p(x)$, and so $y$ is also a Gaussian r.v.. With Equation \ref{eq:covar_se} as the choice of covariance function, and a mean function $m(x)=0$, $y$'s distribution has an analytical form. (TODO: add appendix on derivation and interpretation of the expression)
+where $\ast$ is the \textit{convolution} operation for functions, and $f$ is drawn from the GP conditioned on $\boldsymbol{h},\boldsymbol{z}$. Equation \ref{eq:reformulation} can be seen as a summation over Gaussian r.v. composing $f$, each scaled by $p(x)$, and so $y$ is also a Gaussian r.v.. With Equation \ref{eq:covar_se} as the choice of covariance function, and a mean function $m(x)=0$, $y$'s distribution has an analytical form. Refer to Appendix \ref{apd:singleGPNeuron} for the derivation and interpretation of Equation \ref{eq:reformulation} and \ref{eq:gpneuron}.
 \begin{equation}
     \begin{aligned}
         y&\sim\mathcal{N}(\mu_y, \sigma_y^2) \\
@@ -145,31 +145,28 @@ where $f\sim\mathcal{GP}(m(\cdot),k(\cdot,\cdot)|\boldsymbol{h},\boldsymbol{z},x
     \end{aligned}
 \end{equation}
 This forms the foundation of a single GP neuron. Unlike the traditional Neuron \cite{ANN} which takes an input value and produces an output value, the GP neuron takes as input the distribution of a Gaussian r.v., and outputs the distribution of a Gaussian r.v.. The trainable parameters of the GP neuron would be the GP reference points $\boldsymbol{h}, \boldsymbol{z}$, reference noise $\sigma_n^2$ and the \textit{squared exponential} covariance function parameters $l, s$.
-\begin{equation}
-    x \rightarrow \mathcal{GP}(0, k_{se}(\cdot,\cdot), \boldsymbol{h}, \boldsymbol{z}) \rightarrow y,\quad\quad x\sim\mathcal{N}(\mu_x,\sigma_x^2),y\sim\mathcal{N}(\mu_y,\sigma_y^2)
-\end{equation}
 
 \subsection{Fully-Connected GP Layer (FCGP)}
-The GP neuron equivalent of a Fully-Connected layer can defined, by using the binary operator of addition, as used in Kolmogorov-Arnold Representation Theorem. $\ast$ represents the treatment described in a Single GP Neuron.
+The GP neuron equivalent of a Fully-Connected layer can defined, by using the binary operator of addition, as used in Kolmogorov-Arnold Representation Theorem. $\ast$ represents the \textit{convolution} for functions.
 \begin{equation}
-    y_i = \sum_{j=1}^{n} \mathcal{GP}_{i,j} \ast x_j
+    y_i = \sum_{j=1}^{n} f_{i,j} \ast \mathcal{N}_j, \quad f_{i,j}\sim\mathcal{GP}_{i,j}
 \end{equation}
 TODO: appendix for efficient implementation using standard ML ops
 
 TODO: evaluation on the nature of cross-correlation in the outputs -- there is none
 \begin{equation}
     \begin{bmatrix}
-        y_1\sim\mathcal{N}_{y,1} \\ y_2\sim\mathcal{N}_{y,2} \\ \vdots \\ y_m\sim\mathcal{N}_{y,m}
+        y_1 \\ y_2 \\ \vdots \\ y_m
     \end{bmatrix} =
     \begin{bmatrix}
-        \mathcal{GP}_{1,1} & \mathcal{GP}_{1,2} & \hdots & \mathcal{GP}_{1,n} \\
-        \mathcal{GP}_{2,1} & \mathcal{GP}_{2,2} & \hdots \\
+        f_{1,1} & f_{1,2} & \hdots & f_{1,n} \\
+        f_{2,1} & f_{2,2} & \hdots \\
         \vdots \\
-        \mathcal{GP}_{m,1}
+        f_{m,1}
     \end{bmatrix}\ast
     \begin{bmatrix}
-        x_1\sim\mathcal{N}_{x,1} \\ x_2\sim\mathcal{N}_{x,2} \\ \vdots \\ x_n\sim\mathcal{N}_{x,n}
-    \end{bmatrix}
+        p(x_1) \\ p(x_2) \\ \vdots \\ p(x_n)
+    \end{bmatrix},\quad p(x_i) = \mathcal{N}_i = \mathcal{N}(\mu_{x,i},\sigma_{x,i}^2)
 \end{equation}
 
 \subsection{Convolutional GP Layer (ConvGP)}
@@ -179,7 +176,7 @@ In practice, it is noted that using 2 FCGP layers in series within a single Conv
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=0.9\columnwidth]{Convolutional_GP.pdf} % Reduce the figure size so that it is slightly narrower than the column. Don't use precise values for figure width.This setup will avoid overfull boxes.
+    \includegraphics[width=0.9\columnwidth]{Convolutional_GP.pdf}
     \caption{Convolutional GP (ConvGP) Layer}
     \label{fig:Convolutional_GP}
 \end{figure}
@@ -214,18 +211,41 @@ lll
 \subsection{Toy Data}
 
 
-\subsection{Image Classication}
-The
+\subsection{Image Classication - MNIST}
+A simple model (Figure \ref{fig:MNIST_model}) is used to train on the MNIST dataset \cite{MNIST}, and
+
+\begin{table}
+    \caption{Sample table title}
+     \centering
+     \begin{tabular}{lll}
+       \toprule
+       \multicolumn{3}{c}{MNIST}                                 \\
+       \cmidrule(r){1-3}
+       Model     & Accuracy & \#Params     \\
+       \midrule
+       ConvolutionalKAN\cite{ConvolutionalKAN} & 98.9\% & 95K  \\
+       \bottomrule
+     \end{tabular}
+     \label{tab:table}
+\end{table}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{MNIST_model.png}
+    \caption{MNIST classification for different models. Each model follows the above model structure, with different number of training parameters by changing kernel, channel and stride sizes. Every individual GP neuron has 10 trainable reference points. The models are trained on 55k training set and 5k validation set.}
+    \label{fig:MNIST_model}
+\end{figure}
 
 
 \bibliographystyle{unsrt}
 \bibliography{references}
 
+\newpage
 \appendix
 
 \section{Single GP Neuron Derivation}
-\subsection{Derivation for Equation \ref{eq:gpneuron}}
 \label{apd:singleGPNeuron}
+\subsection{Derivation for Equation \ref{eq:gpneuron}}
 
 First note the following identity:
 \begin{equation}
@@ -237,7 +257,7 @@ Equation \ref{eq:int_gaussian} can be proven by considering Gaussian random vari
 Given the following:
 \begin{equation}
     \begin{aligned}
-        y&=\int fp(x)dx, \quad f\sim\mathcal{GP}(m(\cdot), k(\cdot, \cdot)) \\
+        y=f\ast p(x)&=\int fp(x)dx, \quad f\sim\mathcal{GP}(m(\cdot), k(\cdot, \cdot)) \\
         m(x)&=0 \\
         k(x,x')&=s^2 \exp(-\frac{(x-x')^2}{2l^2})=\sqrt{2\pi}s^2l\mathcal{N}(x|x',l^2) \\
         p(x)&=\mathcal{N}(x|\mu_x,\sigma_x^2)
@@ -301,6 +321,21 @@ Giving the variance in Equation \ref{eq:incomplete_var} to be:
 \begin{equation}
     \text{Var}\left[\Tilde{y}|\boldsymbol{h},\boldsymbol{z}\right]=\frac{s^2l}{\sqrt{l^2+2\sigma_x^2}} - 2\pi s^4 l^2 \boldsymbol{q}_{xh}K_{hh}^{-1}\boldsymbol{q}_{hx}
 \end{equation}
-As a sanity check, in the case of $\sigma_x^2=0$ indicating that the input $x$ is deterministic, the expressions return to the original GP posterior in Equation \ref{eq:GP_pred}
+As a sanity check, in the case of $\sigma_x^2=0$ indicating that the input $x$ is deterministic, the expressions return to the original GP posterior in Equation \ref{eq:GP_pred}.
+
+\subsection{Interpretation}
+The expression for $y$ (Equation \ref{eq:reformulation}) corresponds to the below steps, for $N\rightarrow \infty$. Alternatively, it can be thought of as drawing a sample of a function $f$ from the GP conditioned on data $\boldsymbol{h},\boldsymbol{z}$, and convolving the function sample with $p(x)$, giving a Gaussian r.v. whose mean and variance are tractable. With this interpretation, $y, x$ are therefore independent Gaussian r.v.. Figure \ref{fig:GP_sim} shows the comparison between empirical mean, variance obtained from the below steps, and analytical mean, variance obtained from Equation \ref{eq:gpneuron}.
+\begin{enumerate}
+    \item Draw $\boldsymbol{x}=[x_1\space x_2\space ... \space x_N]^T$ from $x_i\sim \mathcal{N}(\mu_x,\sigma_x^2)$
+    \item Compute the GP predictive posterior $p(\boldsymbol{f}|\boldsymbol{h},\boldsymbol{z})$ at locations $\boldsymbol{x}$, for $f\sim\mathcal{GP}(m(\cdot),k(\cdot,\cdot))$
+    \item Draw a sample $\boldsymbol{f}\sim p(\boldsymbol{f}|\boldsymbol{h},\boldsymbol{z})$ and take $y=\frac{1}{N}\sum_{i=1}^{N}f_i$
+\end{enumerate}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.6\columnwidth]{GP_neuron_sim.png}
+    \caption{Empirical vs Analytical mean and variance values, repeated for different $\mu_x,\sigma_x^2$}
+    \label{fig:GP_sim}
+\end{figure}
 
 \end{document}
