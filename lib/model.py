@@ -133,7 +133,9 @@ class GP_Model(torch.nn.Module):
         """
         return the internal loglik summed across all neurons
         """
-        total_loglik = torch.zeros(1)
+        for p in self.parameters():
+            device = p.device
+        total_loglik = torch.zeros(1).to(device)
         count = 0
         for layer in self.layers:
             if isinstance(layer, (LayerFused, GP_conv2D)):

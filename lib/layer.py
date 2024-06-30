@@ -13,11 +13,17 @@ Z_INIT_HIGH = 2
 H_INIT_LOW = -1
 H_INIT_HIGH = 1
 GLOBAL_LENGTH_SCALE = 0.4
-MIN_LENGTH_SCALE = 0.1
+MIN_LENGTH_SCALE = 0.2
 GLOBAL_COVARIANCE_SCALE = 1
-GLOBAL_GITTER = 1e-1
-BASELINE_GITTER = 1e-4
+MIN_COVARIANCE_SCALE = 0.1
 SQRT_2PI: float = np.sqrt(2 * np.pi)
+
+
+class HYP_CTX:
+    """hyperparameters that can be set"""
+
+    GLOBAL_JITTER = 1e-1
+    BASELINE_JITTER = 1e-2
 
 
 class LayerFused(torch.nn.Module):
@@ -51,8 +57,10 @@ class LayerFused(torch.nn.Module):
 
         # initialise h: the neuron gp values
         self.h = torch.nn.Parameter(
-            torch.rand((self.I, self.O, self.P)) * (H_INIT_HIGH - H_INIT_LOW)
-            + H_INIT_LOW,
+            (
+                torch.rand((self.I, self.O, self.P)) * (H_INIT_HIGH - H_INIT_LOW)
+                + H_INIT_LOW
+            ),
             requires_grad=True,
         )  # (I, O, P)
 
@@ -74,14 +82,14 @@ class LayerFused(torch.nn.Module):
 
     def get_jitter(self):
         """always use this to access jitter, to ensure consistent transformation applied"""
-        return torch.exp(self.jitter)
+        return torch.exp(self.jitter) + HYP_CTX.BASELINE_JITTER
 
     def set_s(self, s):
         self.s.copy_(torch.log(s).detach())
 
     def get_s(self):
         """always use this to access s, to ensure consistent transformation applied"""
-        return torch.exp(self.s)
+        return torch.exp(self.s) + MIN_COVARIANCE_SCALE
 
     def set_l(self, l):
         self.l.copy_(torch.log(l).detach())
@@ -101,7 +109,9 @@ class LayerFused(torch.nn.Module):
         with torch.no_grad():
             self.set_l(new_lengthscale)  # (I, O)
             self.set_s(torch.ones((self.I, self.O)) * GLOBAL_COVARIANCE_SCALE)  # (I, O)
-            self.set_jitter(torch.ones((self.I, self.O)) * GLOBAL_GITTER)  # (I, O)
+            self.set_jitter(
+                torch.ones((self.I, self.O)) * HYP_CTX.GLOBAL_JITTER
+            )  # (I, O)
 
     def forward(self, x: GP_dist) -> GP_dist:
         """
@@ -139,14 +149,13 @@ class LayerFused(torch.nn.Module):
             x_mean.repeat(1, 1, self.O).reshape(N, I, O, 1), z, kernel_func1
         )  # (N, I, O, 1, P)
         Q_hh_noise = Q_hh + (
-            (jitter**2 + BASELINE_GITTER)
+            (jitter**2)
             / (
                 s.reshape(1, I, O, 1, 1) ** 2
                 * torch.abs(l.reshape(1, I, O, 1, 1))
                 * SQRT_2PI
             )
-            + BASELINE_GITTER
-        ) * torch.diag_embed(torch.ones(1, I, O, P), dim1=-2, dim2=-1)
+        ) * torch.diag_embed(torch.ones(1, I, O, P), dim1=-2, dim2=-1).to(Q_hh.device)
 
         # L: (1, I, O, P, P)
         L = torch.linalg.cholesky(Q_hh_noise)  # pylint: disable=not-callable
@@ -172,7 +181,7 @@ class LayerFused(torch.nn.Module):
         # t5: (N, I, O, 1, 1)
         t5 = torch.linalg.matmul(A, A_T)  # pylint: disable=not-callable
         t6 = t5.reshape(N, I, O, 1)  # (N, I, O, 1)
-        t7 = t3 - t4 * t6 + GLOBAL_GITTER  # (N, I, O, 1)
+        t7 = t3 - t4 * t6 + HYP_CTX.GLOBAL_JITTER  # (N, I, O, 1)
         # out_var: (N, O)
         out_var = torch.sum(t7, 1).reshape(N, O)
 
@@ -188,9 +197,9 @@ class LayerFused(torch.nn.Module):
         covar_func = lambda x1, x2: s**2 * torch.exp(-((x1 - x2) ** 2) / (2 * l**2))
 
         K_hh = get_kmatrix(z, z, covar_func)  # (I, O, P, P)
-        K_hh_noise = K_hh + (jitter**2 + BASELINE_GITTER) * torch.diag_embed(
+        K_hh_noise = K_hh + (jitter**2) * torch.diag_embed(
             torch.ones(self.I, self.O, self.P), dim1=-2, dim2=-1
-        )
+        ).to(K_hh.device)
 
         # L: (I, O, P, P)
         L = torch.linalg.cholesky(K_hh_noise)  # pylint: disable=not-callable
@@ -214,6 +223,7 @@ class LayerFused(torch.nn.Module):
         return: GP_dist of mean and var
         """
         assert x.dim() == 1 and x.shape[0] == 1
+        device = x.device
         l = self.get_l()[I_idx, O_idx]  # (1)
         s = self.get_s()[I_idx, O_idx]  # (1)
         jitter = self.get_jitter()[I_idx, O_idx]  # (1)
@@ -222,9 +232,9 @@ class LayerFused(torch.nn.Module):
         covar_func = lambda x1, x2: s**2 * torch.exp(-((x1 - x2) ** 2) / (2 * l**2))
 
         K_hh = get_kmatrix(z, z, covar_func)  # (1, P, P)
-        K_hh_noise = K_hh + (jitter**2 + BASELINE_GITTER) * torch.diag_embed(
+        K_hh_noise = K_hh + (jitter**2) * torch.diag_embed(
             torch.ones(1, self.P), dim1=-2, dim2=-1
-        )
+        ).to(device)
         k_xh = get_kmatrix(x.reshape(1, 1), z, covar_func)  # (1, 1, P)
 
         L = torch.linalg.cholesky(K_hh_noise)  # pylint: disable=not-callable
@@ -257,35 +267,40 @@ class LayerFused(torch.nn.Module):
         z = self.get_z()[I_idx, O_idx]  # (P)
         h = self.h[I_idx, O_idx]  # (P)
         NUM_PLT_PTS = 100
-        x_pts = torch.linspace(
-            torch.min(z) - 1, torch.max(z) + 1, NUM_PLT_PTS
+        x_pts = torch.linspace(torch.min(z) - 0.1, torch.max(z) + 0.1, NUM_PLT_PTS).to(
+            self.h.device
         )  # (NUM_PLT_PTS)
         gp_dist_pts = [self.__gp_dist(x.reshape(1), I_idx, O_idx) for x in x_pts]
 
-        mean = np.array([p.mean.detach().numpy() for p in gp_dist_pts]).reshape(-1)
+        mean = np.array([p.mean.cpu().detach().numpy() for p in gp_dist_pts]).reshape(
+            -1
+        )
         std_dev = np.array(
-            [torch.sqrt(p.var).detach().numpy() for p in gp_dist_pts]
+            [torch.sqrt(p.var).cpu().detach().numpy() for p in gp_dist_pts]
         ).reshape(-1)
 
-        axes.plot(x_pts.numpy(), mean, color="black")
+        axes.plot(x_pts.cpu().numpy(), mean, color="black")
         axes.fill_between(
-            x_pts.numpy(), mean + 2 * std_dev, mean - 2 * std_dev, color="gray"
+            x_pts.cpu().numpy(), mean + 2 * std_dev, mean - 2 * std_dev, color="gray"
         )
 
         axes.scatter(
-            z.detach().numpy(), h.detach().numpy(), color="red"
+            z.cpu().detach().numpy(), h.cpu().detach().numpy(), color="red"
         )  # pylint: disable=not-callable
 
     def save_fig(self, path: str):
         """save a figure showing the GP dist of all neurons"""
+        MAX_NEURONS_SHOWN = 5
+        plot_num = min(self.num_neurons, MAX_NEURONS_SHOWN)
 
-        fig, axes = plt.subplots(1, self.num_neurons, squeeze=False)
+        fig, axes = plt.subplots(1, plot_num, squeeze=False)
 
         axes_idx = 0
         for i_idx in range(self.I):
             for o_idx in range(self.O):
-                self.plot_neuron(axes[0, axes_idx], i_idx, o_idx)
-                axes_idx += 1
+                if axes_idx < plot_num:
+                    self.plot_neuron(axes[0, axes_idx], i_idx, o_idx)
+                    axes_idx += 1
 
         fig.set_figwidth(20)
         fig.set_figheight(5)

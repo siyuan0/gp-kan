@@ -24,6 +24,7 @@ class GP_conv2D(torch.nn.Module):
         stride: int | Tuple[int, int] = 1,
         padding: int | Tuple[int, int] = 0,
         num_gp_pts: int = 5,
+        use_double_layer: bool = False,
     ) -> None:
         super().__init__()
 
@@ -72,6 +73,12 @@ class GP_conv2D(torch.nn.Module):
             self.kernel_input_size, self.kernel_output_size, num_gp_pts=num_gp_pts
         )
 
+        self.use_double_layer = use_double_layer
+        if use_double_layer:
+            self.layerFused2 = LayerFused(
+                self.kernel_output_size, self.kernel_output_size, num_gp_pts=num_gp_pts
+            )
+
     def im2col(self, img: torch.Tensor) -> torch.Tensor:
         """
         convert a [N, IH, IW, IC] tensor into [N, L, IC * KH * KW] tensor
@@ -119,13 +126,24 @@ class GP_conv2D(torch.nn.Module):
         for x.mean.shape = x.var.shape = [N, IH, IW, IC]
         return y.mean.shape = y.var.shape = [N, OH, OW, OC]
         """
-        MAX_BATCHSIZE = 10000
+        MAX_BATCHSIZE = 500000
 
         N = x.mean.shape[0]
-        x_mean_unfolded = self.im2col(x.mean)  # (N, L, IC * KH * KW)
-        x_var_unfolded = self.im2col(x.var)  # (N, L, IC * KH * KW)
-
-        L = x_mean_unfolded.shape[1]
+        LH = int(
+            np.floor(
+                (self.IH + 2 * self.padding[0] - self.dilation[0] * (self.KH - 1) - 1)
+                / self.stride[0]
+                + 1
+            )
+        )
+        LW = int(
+            np.floor(
+                (self.IW + 2 * self.padding[1] - self.dilation[1] * (self.KW - 1) - 1)
+                / self.stride[1]
+                + 1
+            )
+        )
+        L = LH * LW
 
         n_step = max(int(np.floor(MAX_BATCHSIZE / L)), 1)  # always at least take 1 step
 
@@ -137,14 +155,23 @@ class GP_conv2D(torch.nn.Module):
             end_idx = min(N, start_idx + n_step)
             actual_step = end_idx - start_idx
 
-            batch_mean = x_mean_unfolded[start_idx:end_idx].reshape(
-                actual_step * L, self.kernel_input_size
-            )
-            batch_var = x_var_unfolded[start_idx:end_idx].reshape(
-                actual_step * L, self.kernel_input_size
-            )
+            x_mean_unfolded = self.im2col(
+                x.mean[start_idx:end_idx]
+            )  # (actual_step, L, IC * KH * KW)
+            x_var_unfolded = self.im2col(
+                x.var[start_idx:end_idx]
+            )  # (actual_step, L, IC * KH * KW)
 
-            out = self.layerFused.forward(GP_dist(batch_mean, batch_var))
+            batch_mean = x_mean_unfolded.reshape(
+                actual_step * L, self.kernel_input_size
+            )
+            batch_var = x_var_unfolded.reshape(actual_step * L, self.kernel_input_size)
+
+            if self.use_double_layer:
+                imd = self.layerFused.forward(GP_dist(batch_mean, batch_var))
+                out = self.layerFused2.forward(imd)
+            else:
+                out = self.layerFused.forward(GP_dist(batch_mean, batch_var))
             out_means.append(self.col2im(out.mean))  # (actual_step, OH, OW, OC)
             out_vars.append(self.col2im(out.var))  # (actual_step, OH, OW, OC)
 
@@ -157,19 +184,31 @@ class GP_conv2D(torch.nn.Module):
         """
         return the internal loglik
         """
+        if self.use_double_layer:
+            return self.layerFused.loglikelihood() + self.layerFused2.loglikelihood()
         return self.layerFused.loglikelihood()
 
     def reset_gp_hyp(self):
+        if self.use_double_layer:
+            self.layerFused2.reset_gp_hyp()
         self.layerFused.reset_gp_hyp()
 
     def set_all_trainable(self):
+        if self.use_double_layer:
+            self.layerFused2.set_all_trainable()
         self.layerFused.set_all_trainable()
 
     def freeze_all_params(self):
+        if self.use_double_layer:
+            self.layerFused2.freeze_all_params()
         self.layerFused.freeze_all_params()
 
     def set_gp_pts_trainable(self):
+        if self.use_double_layer:
+            self.layerFused2.set_gp_pts_trainable()
         self.layerFused.set_gp_pts_trainable()
 
     def set_gp_hyp_trainable(self):
+        if self.use_double_layer:
+            self.layerFused2.set_gp_hyp_trainable()
         self.layerFused.set_gp_hyp_trainable()
