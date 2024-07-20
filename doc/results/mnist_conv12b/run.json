@@ -1,0 +1,27 @@
+{
+    "BASELINE_JITTER": 1e-2,
+    "GLOBAL_JITTER": 1e-3,
+    "EPOCHS": 0,
+    "BATCH_SIZE": 64,
+    "LEARNING_RATE": 3e-3,
+    "MODEL":[
+        { "GP_conv2D": {
+            "IH_IW_IC_OC": [28, 28, 1, 4],
+            "kernel_size": 5, "stride": 2, "num_gp_pts": 10,"use_double_layer": true
+        }},
+        { "NormaliseGaussian": 0 },
+        { "GP_conv2D": {
+            "IH_IW_IC_OC": [12, 12, 4, 12],
+            "kernel_size": 5, "stride": 2, "num_gp_pts": 10,"use_double_layer": true
+        }},
+        { "NormaliseGaussian": 0 },
+        { "ReshapeGaussian": [-1, 192] },
+        { "LayerFused": {
+            "in": 192, "out": 10, "num_gp_pts": 10
+        }},
+        { "NormaliseGaussian": 0 },
+        { "LayerFused": {
+            "in": 10 , "out": 10, "num_gp_pts":10
+        }}
+    ]
+}

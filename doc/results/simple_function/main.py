@@ -1,7 +1,10 @@
 import argparse
 import json
-import os
 import pathlib
+import sys
+
+sys.path.append("../../../")  # bring to project top level
+
 
 import torch.utils.data
 from torch.utils.data import DataLoader
@@ -22,47 +25,23 @@ from lib.utils import log_likelihood
 USE_GPU = True
 
 
-class DataSetWrapper(torch.utils.data.Dataset):
-    def __init__(self, subset, transform=None):
-        self.subset = subset
-        self.transform = transform
+def true_func(x1, x2):
+    return torch.exp(torch.sin(torch.pi * x1) + x2**2)
 
-    def __getitem__(self, index):
-        x, y = self.subset[index]
-        if self.transform:
-            x = self.transform(x)
-        return x, y
+
+class myDataSet(torch.utils.data.Dataset):
+    def __init__(self, size):
+        RANGE_LOW = -0.5
+        RANGE_HIGH = 0.5
+        self.size = size
+        self.inputs = torch.rand(size, 2) * (RANGE_HIGH - RANGE_LOW) + RANGE_LOW
+        self.labels = true_func(self.inputs[:, 0], self.inputs[:, 1])
 
     def __len__(self):
-        return len(self.subset)
+        return self.size
 
-
-transformations = v2.Compose(
-    [
-        v2.RandomResizedCrop(size=(28, 28), scale=(0.8, 1.0), antialias=True),
-    ]
-)
-
-
-def imgTransform_train(img):
-    t1 = ToTensor()(img)
-    t2 = transformations(t1)
-    t3 = torch.transpose(t2, dim0=-3, dim1=-2)
-    t4 = torch.transpose(t3, dim0=-2, dim1=-1)
-    return t4
-
-
-def imgTransform_test(img):
-    t1 = ToTensor()(img)
-    t2 = torch.transpose(t1, dim0=-3, dim1=-2)
-    t3 = torch.transpose(t2, dim0=-2, dim1=-1)
-    return t3
-
-
-def oneHotEncoding(label):
-    t1 = torch.tensor(label)
-    t2 = torch.nn.functional.one_hot(t1, num_classes=10)  # pylint: disable=not-callable
-    return t2
+    def __getitem__(self, idx):
+        return self.inputs[idx], self.labels[idx]
 
 
 def main(
@@ -89,46 +68,21 @@ def main(
     if USE_GPU:
         model.cuda()
 
-    # print some model neuron
-    # model.layers[5].save_fig("plot1.png")
-
     optimizerSGD = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
     optimizerLBFGS = torch.optim.LBFGS(
         model.parameters(), lr=1e-3, line_search_fn="strong_wolfe"
     )
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizerSGD, gamma=0.9)
 
-    # get MNIST data
-    training_data_all = datasets.MNIST(
-        root="downloads/MNIST/train",
-        train=True,
-        download=True,
-        transform=None,
-        target_transform=oneHotEncoding,
-    )
-
-    test_data_all = datasets.MNIST(
-        root="downloads/MNIST/test",
-        train=False,
-        download=True,
-        transform=imgTransform_test,
-        target_transform=oneHotEncoding,
-    )
-
-    training_data = DataSetWrapper(
-        torch.utils.data.Subset(training_data_all, range(0, 55000)),
-        transform=imgTransform_train,
-    )
-    val_data = DataSetWrapper(
-        torch.utils.data.Subset(training_data_all, range(55000, 60000)),
-        transform=imgTransform_test,
-    )
-    test_data = test_data_all
+    # get data
+    training_data = myDataSet(30000)
+    val_data = myDataSet(1000)
+    test_data = myDataSet(1000)
 
     print(
         f"training on {len(training_data)}, "
         f"validating on {len(val_data)}, "
-        f"testing on {len(val_data)}"
+        f"testing on {len(test_data)}"
     )
 
     train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -143,10 +97,10 @@ def main(
         return negloglik
 
     def eval_model(data_loader):
+        se_total = 0
+        total_count = 0
+        eval_val = 0
         with torch.no_grad():
-            correct_count = 0
-            total_count = 0
-            eval_val = 0
             for i, [test_features, test_labels] in enumerate(
                 tqdm(data_loader, leave=False)
             ):
@@ -157,16 +111,18 @@ def main(
                     test_labels = test_labels.cuda()
 
                 model_out = model.forward(GP_dist.fromTensor(test_features))
-                loglik = log_likelihood(model_out.mean, model_out.var, test_labels)
-
-                corrects = torch.argmax(model_out.mean, dim=1) == torch.argmax(
-                    test_labels, dim=1
+                loglik = log_likelihood(
+                    model_out.mean,
+                    model_out.var,
+                    test_labels.reshape(model_out.mean.shape),
                 )
 
+                se = (test_labels.reshape(model_out.mean.shape) - model_out.mean) ** 2
+
                 eval_val += -torch.sum(loglik).item()
-                correct_count += torch.count_nonzero(corrects).item()
+                se_total += torch.sum(se).item()
                 total_count += batch_size
-        return eval_val / total_count, correct_count / total_count
+        return eval_val / total_count, se_total / total_count
 
     # LBFGS step
     def refine_model():
@@ -176,20 +132,15 @@ def main(
             optimizerLBFGS.step(closureLBFGS)  # type: ignore
             print(f"  refinement {i}: internal loglik {closureLBFGS()}")
 
-    if not reload_model:
-        refine_model()
+    # if not reload_model:
+    #     refine_model()
 
     # SGD step
     model.freeze_all_params()
-    model.set_all_trainable()
-    # print(model.get_input_noise())
-    # exit()
+    # model.set_all_trainable()
+    # model.set_gp_hyp_trainable()
+    model.set_gp_pts_trainable()
 
-    # profile memory usage
-    # with profile(activities=[ProfilerActivity.CPU], profile_memory=True, record_shapes=True) as prof:
-    #     model.forward(GP_dist.fromTensor(train_features))
-    # print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
-    # exit()
     class run_log:
         epoch = []
         lr = []
@@ -203,7 +154,7 @@ def main(
         run_log.epoch = prev_log["epoch"]
         run_log.lr = prev_log["lr"]
         run_log.train_avg_negloglik = prev_log["train_avg_negloglik"]
-        run_log.val_avg_negloglik = prev_log["train_avg_negloglik"]
+        run_log.val_avg_negloglik = prev_log["val_avg_negloglik"]
         run_log.val_acc = prev_log["val_acc"]
         start_epoch = run_log.epoch[-1] + 1
     else:
@@ -212,6 +163,9 @@ def main(
     for epoch in range(start_epoch, start_epoch + epochs):
         train_loglik = 0
         total_count = 0
+        # print some model neuron
+        model.layers[0].save_fig("layer-0.png")
+        model.layers[1].save_fig("layer-1.png")
         for i, [train_features, train_labels] in enumerate(
             tqdm(train_dataloader, leave=False)
         ):
@@ -222,39 +176,48 @@ def main(
                 train_features = train_features.cuda()
                 train_labels = train_labels.cuda()
             model_out = model.predict(train_features)
-            loglik = log_likelihood(model_out.mean, model_out.var, train_labels)
+            loglik = log_likelihood(
+                model_out.mean,
+                model_out.var,
+                train_labels.reshape(model_out.mean.shape),
+            )
             obj_val = -torch.sum(loglik) / batch_size
+
+            # add penalty on spread of inducing points
+            weight = 1000
+            obj_val += weight * torch.sum(
+                (torch.var(model.layers[0].get_z(), dim=-1) - 0.5) ** 2
+            )
+            obj_val += weight * torch.sum(
+                (torch.var(model.layers[1].get_z(), dim=-1) - 0.5) ** 2
+            )
+
             obj_val.backward()
             optimizerSGD.step()
             with torch.no_grad():
                 train_loglik += -torch.sum(loglik).item()
                 total_count += batch_size
 
-        val_negloglik, val_accuracy = eval_model(val_dataloader)
+        val_negloglik, val_mse = eval_model(val_dataloader)
 
         print(
             f"epoch {epoch}, train negloglik: \t{train_loglik / total_count},    "
             f"\tval negloglik: {val_negloglik}    "
-            f"\taccuracy: {val_accuracy}"
-            f"\tlr: {scheduler.get_last_lr()}"
+            f"\tmse: {val_mse}"
+            # f"\tlr: {scheduler.get_last_lr()}"
+            # f"\tin_noise: {model.get_input_noise()}"
         )
         run_log.epoch.append(epoch)
         run_log.lr.append(scheduler.get_last_lr()[0])
         run_log.train_avg_negloglik.append(train_loglik / total_count)
         run_log.val_avg_negloglik.append(val_negloglik)
-        run_log.val_acc.append(val_accuracy)
+        run_log.val_acc.append(val_mse)
 
         if epoch % 20 == 0:
             scheduler.step()
 
         # save tmp
         torch.save(model.state_dict(), run_dir / "tmp.pt")
-        if epoch % 10 == 0:
-            torch.save(model.state_dict(), run_dir / "tmp10.pt")
-        if epoch % 35 == 0:
-            torch.save(model.state_dict(), run_dir / "tmp35.pt")
-        if epoch % 80 == 0:
-            torch.save(model.state_dict(), run_dir / "tmp80.pt")
 
         # log progress
         run_dict = {
@@ -275,8 +238,121 @@ def main(
 
     # test the model accuracy
     print("testing the model")
-    test_negloglik, test_accuracy = eval_model(test_dataloader)
-    print("test_negloglik", test_negloglik, "test accuracy", test_accuracy)
+    test_negloglik, test_mse = eval_model(test_dataloader)
+    print("test_negloglik", test_negloglik, "test mse", test_mse)
+
+    # examples
+    test_inputs, test_labels = next(iter(test_dataloader))
+    print(
+        "input",
+        test_inputs[0:4],
+        "model",
+        model.predict(test_inputs[0:4].cuda()),
+        "label",
+        test_labels[0:4],
+    )
+
+    # -- one example --
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # set font sizes
+    SIZE = 26
+    plt.rc("font", size=SIZE)  # controls default text sizes
+    plt.rc("axes", titlesize=SIZE)  # fontsize of the axes title
+    plt.rc("axes", labelsize=SIZE)  # fontsize of the x and y labels
+    plt.rc("xtick", labelsize=SIZE)  # fontsize of the tick labels
+    plt.rc("ytick", labelsize=SIZE)  # fontsize of the tick labels
+    plt.rc("legend", fontsize=SIZE)  # legend fontsize
+
+    def dsp_g(mean, var, range_min, range_max, ax, yshift=0):
+        print(mean, var)
+        step = (range_max - range_min) / 100
+        x_range = np.arange(range_min, range_max, step)
+        g_pdf = (
+            1 / np.sqrt(2 * np.pi * var) * np.exp(-((x_range - mean) ** 2) / (2 * var))
+            + yshift
+        )
+        ax.fill_between(x_range, g_pdf, yshift)
+
+    print("input noise", model.get_input_noise())
+    test_input0 = test_inputs[0].reshape(1, 2).cuda()
+    test_input0_g = GP_dist(
+        test_input0, (model.get_input_noise() ** 2) * torch.ones_like(test_input0)
+    )
+    layer0 = model.layers[0]
+    layer1 = model.layers[1]
+    t0 = layer0.forward(test_input0_g)
+    out = layer1.forward(t0)
+    # dsp inputs
+    fig, axes = plt.subplots(2, 2, squeeze=False)
+
+    model.layers[0].plot_neuron(axes[0, 0], 0, 0)
+    dsp_g(
+        test_input0_g.mean.cpu().detach().numpy().reshape(-1)[0],
+        test_input0_g.var.cpu().detach().numpy().reshape(-1)[0],
+        -2,
+        2,
+        axes[0, 0],
+        yshift=-4,
+    )
+    model.layers[0].plot_neuron(axes[0, 1], 1, 0)
+    dsp_g(
+        test_input0_g.mean.cpu().detach().numpy().reshape(-1)[1],
+        test_input0_g.var.cpu().detach().numpy().reshape(-1)[1],
+        -2,
+        2,
+        axes[0, 1],
+        yshift=-4,
+    )
+    model.layers[1].plot_neuron(axes[1, 0], 0, 0)
+    dsp_g(
+        t0.mean.cpu().detach().numpy().reshape(-1)[0],
+        t0.var.cpu().detach().numpy().reshape(-1)[0],
+        -2,
+        2,
+        axes[1, 0],
+        yshift=-4,
+    )
+
+    dsp_g(
+        out.mean.cpu().detach().numpy().reshape(-1)[0],
+        out.var.cpu().detach().numpy().reshape(-1)[0],
+        -5,
+        5,
+        axes[1, 1],
+        yshift=0,
+    )
+
+    fig.set_figwidth(10)
+    fig.set_figheight(10)
+    fig.savefig("layers_inputs.png")
+
+    plt.close(fig)
+    SIZE = 15
+    plt.rc("font", size=SIZE)  # controls default text sizes
+    plt.rc("axes", titlesize=SIZE)  # fontsize of the axes title
+    plt.rc("axes", labelsize=SIZE)  # fontsize of the x and y labels
+    plt.rc("xtick", labelsize=SIZE)  # fontsize of the tick labels
+    plt.rc("ytick", labelsize=SIZE)  # fontsize of the tick labels
+    plt.rc("legend", fontsize=SIZE)  # legend fontsize
+    epoch_max = 10
+    plt.plot(
+        run_log.epoch[:epoch_max],
+        run_log.train_avg_negloglik[: 2 * epoch_max : 2],
+        label="training negative log likelihood",
+        linewidth=3,
+    )
+    plt.plot(
+        run_log.epoch[:epoch_max],
+        run_log.val_acc[:epoch_max],
+        label="validation mean squared-error",
+        linewidth=3,
+    )
+    plt.xlabel("epochs")
+    plt.legend()
+    plt.savefig("training.png")
+    # -- end example --
 
     run_dict = {
         "epoch": run_log.epoch,
@@ -288,7 +364,7 @@ def main(
         "val_avg_negloglik": run_log.val_avg_negloglik,
         "val_acc": run_log.val_acc,
         "test_avg_negloglik": test_negloglik,
-        "test_acc": test_accuracy,
+        "test_acc": test_mse,
     }
 
     with open(run_dir / "run_log.json", "w") as outfile:

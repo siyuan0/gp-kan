@@ -1,4 +1,16 @@
 experiment/*
+examples/*
 downloads/*
 .vscode/*
 doc/src/*
+*aux
+*bbl
+*blg
+*fdb_latexmk
+*fls
+*log
+*out
+*pdf
+*png
+*synctex.gz
+*__pycache__*

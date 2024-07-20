@@ -1,0 +1,15 @@
+{
+    "BASELINE_JITTER": 1e-1,
+    "GLOBAL_JITTER": 1e-1,
+    "EPOCHS": 0,
+    "BATCH_SIZE": 128,
+    "LEARNING_RATE": 1e-4,
+    "MODEL":[
+        { "LayerFused": {
+            "in": 2, "out": 1, "num_gp_pts": 10
+        }},
+        { "LayerFused": {
+            "in": 1, "out": 1, "num_gp_pts": 10
+        }}
+    ]
+}

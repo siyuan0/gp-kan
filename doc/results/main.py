@@ -1,7 +1,11 @@
 import argparse
 import json
-import os
 import pathlib
+import sys
+
+TOP_LEVEL = "../../"
+sys.path.append(TOP_LEVEL)  # bring to project top level
+
 
 import torch.utils.data
 from torch.utils.data import DataLoader
@@ -100,7 +104,7 @@ def main(
 
     # get MNIST data
     training_data_all = datasets.MNIST(
-        root="downloads/MNIST/train",
+        root=TOP_LEVEL + "downloads/MNIST/train",
         train=True,
         download=True,
         transform=None,
@@ -108,7 +112,7 @@ def main(
     )
 
     test_data_all = datasets.MNIST(
-        root="downloads/MNIST/test",
+        root=TOP_LEVEL + "downloads/MNIST/test",
         train=False,
         download=True,
         transform=imgTransform_test,
@@ -128,7 +132,7 @@ def main(
     print(
         f"training on {len(training_data)}, "
         f"validating on {len(val_data)}, "
-        f"testing on {len(val_data)}"
+        f"testing on {len(test_data)}"
     )
 
     train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -157,7 +161,11 @@ def main(
                     test_labels = test_labels.cuda()
 
                 model_out = model.forward(GP_dist.fromTensor(test_features))
-                loglik = log_likelihood(model_out.mean, model_out.var, test_labels)
+                loglik = log_likelihood(
+                    model_out.mean,
+                    model_out.var,
+                    test_labels.reshape(model_out.mean.shape),
+                )
 
                 corrects = torch.argmax(model_out.mean, dim=1) == torch.argmax(
                     test_labels, dim=1
@@ -249,12 +257,6 @@ def main(
 
         # save tmp
         torch.save(model.state_dict(), run_dir / "tmp.pt")
-        if epoch % 10 == 0:
-            torch.save(model.state_dict(), run_dir / "tmp10.pt")
-        if epoch % 35 == 0:
-            torch.save(model.state_dict(), run_dir / "tmp35.pt")
-        if epoch % 80 == 0:
-            torch.save(model.state_dict(), run_dir / "tmp80.pt")
 
         # log progress
         run_dict = {
@@ -277,6 +279,33 @@ def main(
     print("testing the model")
     test_negloglik, test_accuracy = eval_model(test_dataloader)
     print("test_negloglik", test_negloglik, "test accuracy", test_accuracy)
+
+    # example tests
+    print("example output")
+    inputs, labels = next(iter(test_dataloader))
+    if USE_GPU:
+        inputs = inputs.cuda()
+        labels = labels.cuda()
+    predictions = model.predict(inputs)
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    np.set_printoptions(suppress=True, precision=3)
+    fig, axes = plt.subplots(1, 3)
+    for i in range(3):
+        axes[i].imshow(inputs[i].cpu())
+        pred = predictions.mean[i].detach().cpu().numpy()
+        pred_max = np.argmax(pred)
+        axes[i].set_title(
+            f"model prediction: {pred_max}\n raw model output:\n{pred[:5]}\n{pred[5:]}",
+            ha="left",
+            loc="left",
+        )
+
+    fig.set_figwidth(16)
+    fig.set_figheight(4)
+    fig.tight_layout(w_pad=4)
+    fig.savefig("input_img.png")
 
     run_dict = {
         "epoch": run_log.epoch,

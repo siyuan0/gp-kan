@@ -267,7 +267,7 @@ class LayerFused(torch.nn.Module):
         z = self.get_z()[I_idx, O_idx]  # (P)
         h = self.h[I_idx, O_idx]  # (P)
         NUM_PLT_PTS = 100
-        x_pts = torch.linspace(torch.min(z) - 0.1, torch.max(z) + 0.1, NUM_PLT_PTS).to(
+        x_pts = torch.linspace(torch.min(z) - 1, torch.max(z) + 1, NUM_PLT_PTS).to(
             self.h.device
         )  # (NUM_PLT_PTS)
         gp_dist_pts = [self.__gp_dist(x.reshape(1), I_idx, O_idx) for x in x_pts]
@@ -293,7 +293,7 @@ class LayerFused(torch.nn.Module):
         MAX_NEURONS_SHOWN = 5
         plot_num = min(self.num_neurons, MAX_NEURONS_SHOWN)
 
-        fig, axes = plt.subplots(1, plot_num, squeeze=False)
+        fig, axes = plt.subplots(1, 2, squeeze=False)
 
         axes_idx = 0
         for i_idx in range(self.I):

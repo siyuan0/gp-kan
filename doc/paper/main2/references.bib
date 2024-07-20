@@ -206,3 +206,75 @@
       primaryClass={cs.CV},
       url={https://arxiv.org/abs/2406.13155},
 }
+
+@misc{NoRoutingModel,
+      title={No Routing Needed Between Capsules},
+      author={Adam Byerly and Tatiana Kalganova and Ian Dear},
+      year={2021},
+      eprint={2001.09136},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2001.09136},
+}
+
+@inproceedings{inducingGP,
+ author = {Snelson, Edward and Ghahramani, Zoubin},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {Y. Weiss and B. Sch\"{o}lkopf and J. Platt},
+ pages = {},
+ publisher = {MIT Press},
+ title = {Sparse Gaussian Processes using Pseudo-inputs},
+ url = {https://proceedings.neurips.cc/paper_files/paper/2005/file/4491777b1aa8b5b32c2e8666dbe1a495-Paper.pdf},
+ volume = {18},
+ year = {2005}
+}
+
+
+@InProceedings{variationalInducingGP,
+  title = 	 {Variational Learning of Inducing Variables in Sparse Gaussian Processes},
+  author = 	 {Titsias, Michalis},
+  booktitle = 	 {Proceedings of the Twelth International Conference on Artificial Intelligence and Statistics},
+  pages = 	 {567--574},
+  year = 	 {2009},
+  editor = 	 {van Dyk, David and Welling, Max},
+  volume = 	 {5},
+  series = 	 {Proceedings of Machine Learning Research},
+  address = 	 {Hilton Clearwater Beach Resort, Clearwater Beach, Florida USA},
+  month = 	 {16--18 Apr},
+  publisher =    {PMLR},
+  pdf = 	 {http://proceedings.mlr.press/v5/titsias09a/titsias09a.pdf},
+  url = 	 {https://proceedings.mlr.press/v5/titsias09a.html},
+  abstract = 	 {Sparse Gaussian process methods that use inducing variables require the selection of the inducing inputs and the kernel hyperparameters. We introduce a variational formulation for sparse approximations that jointly infers the inducing inputs and the kernel hyperparameters by maximizing a lower bound of the true log marginal likelihood. The key property of this formulation is that the inducing inputs  are defined to be variational parameters  which are selected by minimizing  the Kullback-Leibler divergence between  the variational distribution and the exact posterior distribution over the latent function values. We apply this technique to regression and we compare it with other approaches in the literature.}
+}
+
+@Inbook{InfiniteWidthNNasGP,
+author="Neal, Radford M.",
+title="Priors for Infinite Networks",
+bookTitle="Bayesian Learning for Neural Networks",
+year="1996",
+publisher="Springer New York",
+address="New York, NY",
+pages="29--53",
+abstract="In this chapter, I show that priors over network parameters can be defined in such a way that the corresponding priors over functions computed by the network reach reasonable limits as the number of hidden units goes to infinity. When using such priors,there is thus no need to limit the size of the network in order to avoid ``overfitting''. The infinite network limit also provides insight into the properties of different priors. A Gaussian prior for hidden-to-output weights results in a Gaussian process prior for functions,which may be smooth, Brownian, or fractional Brownian. Quite different effects can be obtained using priors based on non-Gaussian stable distributions. In networks with more than one hidden layer, a combination of Gaussian and non-Gaussian priors appears most interesting.",
+isbn="978-1-4612-0745-0",
+doi="10.1007/978-1-4612-0745-0_2",
+url="https://doi.org/10.1007/978-1-4612-0745-0_2"
+}
+
+
+@InProceedings{DeepGPapproximateEP,
+  title = 	 {Deep Gaussian Processes for Regression using Approximate Expectation Propagation},
+  author = 	 {Bui, Thang and Hernandez-Lobato, Daniel and Hernandez-Lobato, Jose and Li, Yingzhen and Turner, Richard},
+  booktitle = 	 {Proceedings of The 33rd International Conference on Machine Learning},
+  pages = 	 {1472--1481},
+  year = 	 {2016},
+  editor = 	 {Balcan, Maria Florina and Weinberger, Kilian Q.},
+  volume = 	 {48},
+  series = 	 {Proceedings of Machine Learning Research},
+  address = 	 {New York, New York, USA},
+  month = 	 {20--22 Jun},
+  publisher =    {PMLR},
+  pdf = 	 {http://proceedings.mlr.press/v48/bui16.pdf},
+  url = 	 {https://proceedings.mlr.press/v48/bui16.html},
+  abstract = 	 {Deep Gaussian processes (DGPs) are multi-layer hierarchical generalisations of Gaussian processes (GPs) and are formally equivalent to neural networks with multiple, infinitely wide hidden layers. DGPs are nonparametric probabilistic models and as such are arguably more flexible, have a greater capacity to generalise, and provide better calibrated uncertainty estimates than alternative deep models. This paper develops a new approximate Bayesian learning scheme that enables DGPs to be applied to a range of medium to large scale regression problems for the first time. The new method uses an approximate Expectation Propagation procedure and a novel and efficient extension of the probabilistic backpropagation algorithm for learning. We evaluate the new method for non-linear regression on eleven real-world datasets, showing that it always outperforms GP regression and is almost always better than state-of-the-art deterministic and sampling-based approximate inference methods for Bayesian neural networks. As a by-product, this work provides a comprehensive analysis of six approximate Bayesian methods for training neural networks.}
+}
