@@ -6,6 +6,7 @@ disable=
     missing-module-docstring,
     missing-function-docstring,
     missing-class-docstring,
+    multiple-statements,
     invalid-name,
     too-few-public-methods,
     too-many-locals,

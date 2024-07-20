@@ -1,4 +1,5 @@
 from typing import Callable
+from typing import Sequence
 
 import torch
 
@@ -27,6 +28,15 @@ def log_likelihood(
         -0.5 * torch.log(2 * torch.pi * pred_var)
         - 0.5 * ((pred_mean - true_val) ** 2) / pred_var
     )
+
+
+def same_shape(shape1: Sequence, shape2: Sequence) -> bool:
+    if len(shape1) != len(shape2):
+        return False
+    for i, _ in enumerate(shape1):
+        if shape1[i] != shape2[i]:
+            return False
+    return True
 
 
 def get_kmatrix(

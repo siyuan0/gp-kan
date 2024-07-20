@@ -1,14 +1,25 @@
+import pathlib
 from typing import List
 
 import torch
 
+# noreorder
+# pylint: disable=unused-import
+from lib.activations import NormaliseGaussian
+from lib.activations import ReshapeGaussian
 from lib.conv import GP_conv2D
 from lib.gp_dist import GP_dist
 from lib.layer import LayerFused
+from lib.utils import count_parameters
 
 
 class GP_Model(torch.nn.Module):
-    def __init__(self, layers: List[torch.nn.Module], input_noise_log_init=-2) -> None:
+    def __init__(
+        self,
+        layers: List[torch.nn.Module],
+        input_noise_log_init=-2,
+        saveload_path="model.pth",
+    ) -> None:
         """
         initialise based on a provided layers layout
         """
@@ -21,6 +32,17 @@ class GP_Model(torch.nn.Module):
 
         for i, layer in enumerate(self.layers):
             self.add_module(f"layer_{i}", layer)
+
+        self.saveload_path = pathlib.PosixPath(saveload_path)
+        if self.saveload_path.is_file():
+            self.load_state_dict(torch.load(self.saveload_path))
+
+    def print_model(self):
+        print(self)
+        print("parameter count: ", count_parameters(self))
+
+    def save_model(self):
+        torch.save(self.state_dict(), self.saveload_path)
 
     def get_input_noise(self):
         return torch.exp(self.input_noise_log)

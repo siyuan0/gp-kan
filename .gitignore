@@ -1,6 +1,6 @@
 experiment/*
 examples/*
-downloads/*
+lib/dataset/downloads/*
 .vscode/*
 doc/src/*
 *aux
