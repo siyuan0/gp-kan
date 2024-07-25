@@ -327,7 +327,6 @@ The model was able to achieve good test accuracy of 98.53\% at 80 thousand param
 
 \begin{figure}[h]
     \centering
-    \centering
     \begin{subfigure}[b]{0.3\columnwidth}
         \includegraphics[width=\textwidth]{MNIST_model.png}
         \caption{}
@@ -344,10 +343,17 @@ The model was able to achieve good test accuracy of 98.53\% at 80 thousand param
     \label{fig:MNIST_model}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[t]
     \centering
-    \includegraphics[width=0.9\columnwidth]{MNIST_examples.png}
-    \caption{Example of MNIST model predictions. ArgMax is applied on the raw model output to determine the label}
+    \begin{subfigure}[b]{0.7\columnwidth}
+        \includegraphics[width=\textwidth]{MNIST_examples.png}
+        \caption{}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.23\columnwidth}
+        \includegraphics[width=\textwidth]{MNIST_bad_pred.png}
+        \caption{}
+    \end{subfigure}
+    \caption{Example of MNIST model predictions, with (a) showing the successful predictions and (b) showing a failed prediction. ArgMax is applied on the raw model output to get the index corresponding to the label. In the case of the failed prediction, the raw output values for the predicted index and the index corresponding to the true label are very close.}
     \label{fig:MNIST_example}
 \end{figure}
 

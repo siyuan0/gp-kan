@@ -3,7 +3,7 @@
     "GLOBAL_JITTER": 1e-2,
     "EPOCHS": 100,
     "BATCH_SIZE": 64,
-    "LEARNING_RATE": 1e-2,
+    "LEARNING_RATE": 1e-3,
     "MODEL":[
         { "GP_conv2D": {
             "IH_IW_IC_OC": [28, 28, 1, 3],

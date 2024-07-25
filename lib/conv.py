@@ -24,7 +24,7 @@ class GP_conv2D(torch.nn.Module):
         stride: int | Tuple[int, int] = 1,
         padding: int | Tuple[int, int] = 0,
         num_gp_pts: int = 5,
-        use_double_layer: bool = False,
+        use_double_layer: bool = True,
     ) -> None:
         super().__init__()
 
@@ -34,6 +34,7 @@ class GP_conv2D(torch.nn.Module):
         self.padding = (padding, padding) if isinstance(padding, int) else padding
         self.stride = (stride, stride) if isinstance(stride, int) else stride
         self.dilation = (dilation, dilation) if isinstance(dilation, int) else dilation
+        self.num_gp_pts = num_gp_pts
 
         self.IC = in_channel
         self.OC = out_channel

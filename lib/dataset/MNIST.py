@@ -22,6 +22,14 @@ class DataSetWrapper(torch.utils.data.Dataset):
         return len(self.subset)
 
 
+transformations = v2.Compose(
+    [
+        v2.RandomResizedCrop(size=(28, 28), scale=(0.8, 1.0), antialias=True),
+        # v2.RandomRotation(degrees=(-30, 30))
+    ]
+)
+
+
 def imgTransform_train(img):
     t1 = ToTensor()(img)
     t2 = transformations(t1)
@@ -41,13 +49,6 @@ def oneHotEncoding(label):
     t1 = torch.tensor(label)
     t2 = torch.nn.functional.one_hot(t1, num_classes=10)  # pylint: disable=not-callable
     return t2
-
-
-transformations = v2.Compose(
-    [
-        v2.RandomResizedCrop(size=(28, 28), scale=(0.8, 1.0), antialias=True),
-    ]
-)
 
 
 def get_train_val_test(
@@ -74,10 +75,10 @@ def get_train_val_test(
     )
 
     test_data_all = datasets.MNIST(
-        root=(dataset_dir / "train"),
+        root=(dataset_dir / "test"),
         train=False,
         download=True,
-        transform=imgTransform_test,
+        transform=None,
         target_transform=oneHotEncoding,
     )
 
@@ -101,7 +102,7 @@ def get_train_val_test(
     print(
         f"training on {len(training_data)}\n"
         f"validating on {len(val_data)}\n"
-        f"testing on {len(val_data)}\n"
+        f"testing on {len(test_data)}"
     )
 
     return train_dataloader, val_dataloader, test_dataloader

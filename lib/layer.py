@@ -22,8 +22,20 @@ SQRT_2PI: float = np.sqrt(2 * np.pi)
 class HYP_CTX:
     """hyperparameters that can be set"""
 
-    GLOBAL_JITTER = 1e-1
+    GLOBAL_JITTER = 1e-3
     BASELINE_JITTER = 1e-2
+
+    @classmethod
+    def to_dict(cls) -> dict:
+        return {
+            "GLOBAL_JITTER": cls.GLOBAL_JITTER,
+            "BASELINE_JITTER": cls.BASELINE_JITTER,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict):
+        cls.GLOBAL_JITTER = d["GLOBAL_JITTER"]
+        cls.BASELINE_JITTER = d["BASELINE_JITTER"]
 
 
 class LayerFused(torch.nn.Module):

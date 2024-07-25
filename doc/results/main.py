@@ -84,7 +84,7 @@ def main(
     HYP_CTX.GLOBAL_JITTER = global_jitter
 
     print(model)
-    print(f"number of parameters: {count_parameters(model)}")
+    print(f"number of parameters: {count_parameters(model, only_require_grad=True)}")
     reload_model = MODEL_SAVE_PATH.is_file()
     if reload_model:
         model.load_state_dict(torch.load(MODEL_SAVE_PATH))
